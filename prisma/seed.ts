@@ -3,61 +3,60 @@ import { PrismaClient } from '@prisma/client'
 const prisma = new PrismaClient()
 
 async function main() {
-  await prisma.reservation.deleteMany()
-  await prisma.inventory.deleteMany()
-  await prisma.product.deleteMany()
-  await prisma.warehouse.deleteMany()
+  console.log('Seeding additional products...')
 
-  const warehouse1 = await prisma.warehouse.create({
-    data: {
-      name: 'Hyderabad Warehouse',
-    },
-  })
+  // Get existing warehouses (Hyderabad and Bangalore)
+  const warehouses = await prisma.warehouse.findMany()
+  if (warehouses.length === 0) {
+    // If no warehouses exist, create them
+    await prisma.warehouse.createMany({
+      data: [{ name: 'Hyderabad Warehouse' }, { name: 'Bangalore Warehouse' }],
+    })
+    const refreshed = await prisma.warehouse.findMany()
+    warehouses.push(...refreshed)
+  }
 
-  const warehouse2 = await prisma.warehouse.create({
-    data: {
-      name: 'Bangalore Warehouse',
-    },
-  })
+  const newProducts = [
+    { name: 'Google Pixel 8' },
+    { name: 'OnePlus 12' },
+  ]
 
-  const product1 = await prisma.product.create({
-    data: {
-      name: 'iPhone 15',
-    },
-  })
+  for (const productData of newProducts) {
+    // Check if product already exists
+    const existing = await prisma.product.findFirst({
+      where: { name: productData.name },
+    })
+    if (existing) {
+      console.log(`Product ${productData.name} already exists, skipping.`)
+      continue
+    }
 
-  const product2 = await prisma.product.create({
-    data: {
-      name: 'Samsung S24',
-    },
-  })
+    // Create product
+    const product = await prisma.product.create({
+      data: { name: productData.name },
+    })
 
-  await prisma.inventory.createMany({
-    data: [
-      {
-        productId: product1.id,
-        warehouseId: warehouse1.id,
-        totalUnits: 10,
-      },
-      {
-        productId: product1.id,
-        warehouseId: warehouse2.id,
-        totalUnits: 5,
-      },
-      {
-        productId: product2.id,
-        warehouseId: warehouse1.id,
-        totalUnits: 8,
-      },
-    ],
-  })
+    // Create inventory for each warehouse
+    for (const warehouse of warehouses) {
+      await prisma.inventory.create({
+        data: {
+          productId: product.id,
+          warehouseId: warehouse.id,
+          totalUnits: 10,
+          reservedUnits: 0,
+        },
+      })
+    }
+    console.log(`Added ${productData.name} with inventory.`)
+  }
 
-  console.log('Seed data inserted')
+  console.log('Seeding complete.')
 }
 
 main()
-  .catch((e) => {
+  .catch(e => {
     console.error(e)
+    process.exit(1)
   })
   .finally(async () => {
     await prisma.$disconnect()

@@ -1,72 +1,49 @@
-// app/api/reservations/[id]/route.ts (GET - to fetch reservation details)
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
-export async function GET(
+export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
+
     const reservation = await prisma.reservation.findUnique({
-      where: { id: params.id },
-      include: {
-        product: {
-          select: {
-            id: true,
-            name: true,
-            sku: true,
-            description: true,
-          },
-        },
-        warehouse: {
-          select: {
-            id: true,
-            name: true,
-            location: true,
-          },
-        },
-      },
+      where: { id },
     })
 
     if (!reservation) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+
+    if (reservation.status !== 'PENDING') {
       return NextResponse.json(
-        { error: 'Reservation not found' },
-        { status: 404 }
+        { error: `Already ${reservation.status.toLowerCase()}` },
+        { status: 400 }
       )
     }
 
-    // Check if expired and update if needed
-    if (reservation.status === 'PENDING' && reservation.expiresAt < new Date()) {
-      await prisma.$transaction(async (tx) => {
-        await tx.reservation.update({
-          where: { id: params.id },
-          data: { status: 'EXPIRED' },
-        })
-        
-        await tx.stockLevel.update({
-          where: {
-            productId_warehouseId: {
-              productId: reservation.productId,
-              warehouseId: reservation.warehouseId,
-            },
-          },
-          data: {
-            reservedUnits: {
-              decrement: reservation.units,
-            },
-          },
-        })
+    await prisma.$transaction(async (tx) => {
+      await tx.reservation.update({
+        where: { id },
+        data: { status: 'RELEASED' },
       })
-      
-      reservation.status = 'EXPIRED'
-    }
+      await tx.inventory.update({
+        where: {
+          productId_warehouseId: {
+            productId: reservation.productId,
+            warehouseId: reservation.warehouseId,
+          },
+        },
+        data: {
+          reservedUnits: { decrement: reservation.quantity },
+        },
+      })
+    })
 
-    return NextResponse.json({ reservation })
+    return NextResponse.json({ success: true, message: 'Released' })
   } catch (error) {
-    console.error('Error fetching reservation:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch reservation' },
-      { status: 500 }
-    )
+    console.error('Release error:', error)
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 })
   }
 }

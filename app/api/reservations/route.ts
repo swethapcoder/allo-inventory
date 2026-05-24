@@ -1,40 +1,43 @@
-import { NextResponse } from 'next/server'
-import { createReservation } from '@/lib/reservation'
+import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
 
-export async function POST(req: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const body = await req.json()
+    const { productId, warehouseId, units } = await request.json()
 
-    const { productId, warehouseId, quantity } = body
+    const result = await prisma.$transaction(async (tx) => {
+      const inventory = await tx.inventory.findUnique({
+        where: { productId_warehouseId: { productId, warehouseId } },
+      })
+      if (!inventory) throw new Error('Inventory not found')
 
-    const reservation = await createReservation(
-      productId,
-      warehouseId,
-      quantity,
-    )
+      const available = inventory.totalUnits - inventory.reservedUnits
+      if (available < units) throw new Error('Not enough stock')
 
-    return NextResponse.json(reservation)
+      // ✅ ONLY increment reservedUnits – totalUnits stays the same
+      await tx.inventory.update({
+        where: { id: inventory.id },
+        data: { reservedUnits: { increment: units } },
+      })
+
+      return await tx.reservation.create({
+        data: {
+          productId,
+          warehouseId,
+          quantity: units,
+          status: 'PENDING',
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        },
+      })
+    })
+
+    return NextResponse.json({ reservation: result }, { status: 201 })
   } catch (error: any) {
+    if (error.message === 'Not enough stock')
+      return NextResponse.json({ error: 'Not enough stock' }, { status: 409 })
+    if (error.message === 'Inventory not found')
+      return NextResponse.json({ error: 'Inventory not found' }, { status: 404 })
     console.error(error)
-
-    if (error.message === 'INSUFFICIENT_STOCK') {
-      return NextResponse.json(
-        {
-          error: 'Not enough stock available',
-        },
-        {
-          status: 409,
-        },
-      )
-    }
-
-    return NextResponse.json(
-      {
-        error: 'Failed to create reservation',
-      },
-      {
-        status: 500,
-      },
-    )
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

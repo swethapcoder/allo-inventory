@@ -1,9 +1,7 @@
-// app/page.tsx (Corrected for your actual API)
 'use client'
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import axios from 'axios'
 
 type Stock = {
   warehouseId: string
@@ -25,56 +23,32 @@ export default function HomePage() {
   const [reserving, setReserving] = useState<string | null>(null)
   const router = useRouter()
 
-  async function fetchProducts() {
-    try {
-      const response = await axios.get('/api/products')
-      // Your API returns the array directly, not wrapped in { products: ... }
-      setProducts(response.data)
-    } catch (error) {
-      console.error(error)
-      alert('Failed to load products')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
-    fetchProducts()
+    fetch('/api/products')
+      .then(res => res.json())
+      .then(setProducts)
+      .catch(console.error)
+      .finally(() => setLoading(false))
   }, [])
 
-  async function reserveProduct(
-    productId: string,
-    warehouseId: string,
-    productName: string
-  ) {
-    const reserveKey = `${productId}-${warehouseId}`
-    setReserving(reserveKey)
-    
+  async function reserveProduct(productId: string, warehouseId: string) {
+    const key = `${productId}-${warehouseId}`
+    setReserving(key)
     try {
-      const response = await axios.post(
-        '/api/reservations',
-        {
-          productId,
-          warehouseId,
-          units: 1,
-        },
-      )
-
-      alert(`Reservation created! Redirecting to checkout...`)
-      
-      // Navigate to the reservation page
-      router.push(`/reservation/${response.data.reservation.id}`)
-      
-    } catch (error: any) {
-      if (error.response?.status === 409) {
-        alert('Not enough stock available')
-        // Refresh to show updated stock
-        fetchProducts()
-      } else if (error.response?.status === 410) {
-        alert('Reservation expired')
-      } else {
-        alert(error.response?.data?.error || 'Something went wrong')
+      const res = await fetch('/api/reservations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId, warehouseId, units: 1 }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        alert(data.error || 'Reservation failed')
+        return
       }
+      router.push(`/reservation/${data.reservation.id}`)
+    } catch (err) {
+      console.error(err)
+      alert('Network error – check if server is running')
     } finally {
       setReserving(null)
     }
@@ -82,73 +56,57 @@ export default function HomePage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading products...</p>
-        </div>
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="animate-pulse text-teal-400 font-mono">Loading inventory...</div>
       </div>
     )
   }
 
   return (
-    <main className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-2">Product Catalog</h1>
-      <p className="text-gray-600 mb-8">Browse and reserve inventory across our warehouses</p>
-
-      <div className="grid gap-6">
-        {products.map((product) => (
-          <div
-            key={product.id}
-            className="border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow"
-          >
-            <h2 className="text-xl font-semibold mb-4">{product.name}</h2>
-
-            <div className="space-y-3">
-              {product.stocks.map((stock) => (
-                <div
-                  key={stock.warehouseId}
-                  className="flex items-center justify-between border p-4 rounded-lg bg-gray-50"
-                >
-                  <div>
-                    <p className="font-medium">{stock.warehouseName}</p>
-                    <div className="mt-1">
-                      <span className="text-2xl font-bold text-green-600">
-                        {stock.availableUnits}
-                      </span>
-                      <span className="text-sm text-gray-500 ml-1">available</span>
-                    </div>
-                    <div className="text-xs text-gray-400 mt-1">
-                      Total: {stock.totalUnits} | Reserved: {stock.reservedUnits}
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => reserveProduct(product.id, stock.warehouseId, product.name)}
-                    disabled={reserving === `${product.id}-${stock.warehouseId}` || stock.availableUnits === 0}
-                    className={`
-                      px-6 py-2 rounded-lg font-medium transition-all
-                      ${stock.availableUnits === 0 
-                        ? 'bg-gray-300 cursor-not-allowed' 
-                        : 'bg-blue-600 hover:bg-blue-700 text-white'
-                      }
-                    `}
-                  >
-                    {reserving === `${product.id}-${stock.warehouseId}` ? (
-                      <div className="flex items-center gap-2">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                        Reserving...
-                      </div>
-                    ) : (
-                      'Reserve'
-                    )}
-                  </button>
-                </div>
-              ))}
-            </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 to-slate-900">
+      <div className="max-w-7xl mx-auto px-6 py-14">
+        <div className="mb-12">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="h-2 w-2 rounded-full bg-teal-400 animate-pulse" />
+            <span className="font-mono text-xs text-teal-400 tracking-wider uppercase">Live inventory</span>
           </div>
-        ))}
+          <h1 className="text-4xl sm:text-5xl font-bold bg-gradient-to-r from-teal-400 to-blue-400 bg-clip-text text-transparent">
+            Warehouse Stock
+          </h1>
+          <p className="text-slate-500 mt-2 max-w-lg">
+            Reserve items across fulfilment centres. Holds valid for 15 minutes.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {products.map((product) => (
+            <div key={product.id} className="rounded-2xl border border-slate-800 bg-slate-900/50 backdrop-blur-sm overflow-hidden hover:border-slate-700 transition-all hover:-translate-y-1">
+              <div className="h-1 w-full bg-gradient-to-r from-teal-400 to-blue-500" />
+              <div className="p-5">
+                <h2 className="text-xl font-semibold text-slate-100 mb-4">{product.name}</h2>
+                <div className="space-y-3">
+                  {product.stocks.map((stock) => (
+                    <div key={stock.warehouseId} className="flex items-center justify-between p-3 rounded-xl bg-slate-800/40 border border-slate-800">
+                      <div>
+                        <p className="font-medium text-slate-200">{stock.warehouseName}</p>
+                        <p className="text-sm text-teal-400 font-mono">{stock.availableUnits} available</p>
+                        <p className="text-xs text-slate-500">Total: {stock.totalUnits} | Reserved: {stock.reservedUnits}</p>
+                      </div>
+                      <button
+                        onClick={() => reserveProduct(product.id, stock.warehouseId)}
+                        disabled={reserving === `${product.id}-${stock.warehouseId}` || stock.availableUnits === 0}
+                        className="px-4 py-2 rounded-lg font-medium transition-all bg-teal-500 hover:bg-teal-400 text-slate-900 disabled:bg-slate-700 disabled:text-slate-500"
+                      >
+                        {reserving === `${product.id}-${stock.warehouseId}` ? '...' : 'Reserve'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
-    </main>
+    </div>
   )
 }

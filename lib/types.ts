@@ -1,64 +1,18 @@
-generator client {
-  provider = "prisma-client-js"
+// types.ts
+export type StockWithWarehouse = {
+  warehouseId: string
+  warehouseName: string
+  warehouseLocation?: string   // optional – your schema has no location
+  totalUnits: number
+  reservedUnits: number
+  availableUnits: number
 }
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-enum ReservationStatus {
-  PENDING
-  CONFIRMED
-  RELEASED
-  EXPIRED
-}
-
-model Product {
-  id            String        @id @default(cuid())
-  name          String
-
-  inventories   Inventory[]
-  reservations  Reservation[]
-}
-
-model Warehouse {
-  id            String        @id @default(cuid())
-  name          String
-
-  inventories   Inventory[]
-  reservations  Reservation[]
-}
-
-model Inventory {
-  id             String @id @default(cuid())
-
-  productId      String
-  warehouseId    String
-
-  totalUnits     Int
-  reservedUnits  Int @default(0)
-
-  product        Product   @relation(fields: [productId], references: [id])
-  warehouse      Warehouse @relation(fields: [warehouseId], references: [id])
-
-  @@unique([productId, warehouseId])
-}
-
-model Reservation {
-  id            String @id @default(cuid())
-
-  productId     String
-  warehouseId   String
-
-  quantity      Int
-
-  status        ReservationStatus
-
-  expiresAt     DateTime
-
-  createdAt     DateTime @default(now())
-
-  product       Product   @relation(fields: [productId], references: [id])
-  warehouse     Warehouse @relation(fields: [warehouseId], references: [id])
+export type ProductWithStock = {
+  id: string
+  name: string
+  sku?: string                 // optional – your schema has no sku
+  description?: string
+  priceInCents?: number        // optional – no price in schema
+  stocks: StockWithWarehouse[]
 }

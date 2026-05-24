@@ -1,346 +1,162 @@
-// app/reservation/[id]/page.tsx (Complete with timer)
 'use client'
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { toast } from '@/components/ui/use-toast'
-import { Loader2, Clock, CheckCircle, XCircle, Package, Warehouse, MapPin, AlertCircle } from 'lucide-react'
 
-interface Reservation {
+type Reservation = {
   id: string
-  productId: string
-  warehouseId: string
-  units: number
+  product: { name: string }
+  warehouse: { name: string; location?: string }
+  quantity: number
   status: string
   expiresAt: string
-  createdAt: string
-  product: {
-    id: string
-    name: string
-    sku: string
-    description: string
-  }
-  warehouse: {
-    id: string
-    name: string
-    location: string
-  }
 }
 
-export default function ReservationPage({ params }: { params: { id: string } }) {
-  const [reservation, setReservation] = useState<Reservation | null>(null)
+export default function ReservationPage({ params }: { params: Promise<{ id: string }> }) {
+  const [res, setRes] = useState<Reservation | null>(null)
+  const [timeLeft, setTimeLeft] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [timeLeft, setTimeLeft] = useState<number>(0)
-  const [confirming, setConfirming] = useState(false)
-  const [releasing, setReleasing] = useState(false)
+  const [id, setId] = useState<string | null>(null)
   const router = useRouter()
 
   useEffect(() => {
-    fetchReservation()
-    
-    // Refresh every 30 seconds to check status
-    const interval = setInterval(fetchReservation, 30000)
-    return () => clearInterval(interval)
-  }, [params.id])
+    params.then(({ id }) => setId(id))
+  }, [params])
 
   useEffect(() => {
-    if (reservation && reservation.status === 'PENDING') {
-      const timer = setInterval(() => {
-        const expiry = new Date(reservation.expiresAt).getTime()
-        const now = Date.now()
-        const remaining = Math.max(0, Math.floor((expiry - now) / 1000))
-        setTimeLeft(remaining)
-        
-        if (remaining <= 0 && reservation.status === 'PENDING') {
-          clearInterval(timer)
-          toast({
-            title: 'Reservation Expired',
-            description: 'Your reservation has expired. The inventory has been released.',
-            variant: 'destructive',
-          })
-          fetchReservation() // Refresh to show expired status
-        }
-      }, 1000)
-
-      return () => clearInterval(timer)
-    }
-  }, [reservation])
-
-  const fetchReservation = async () => {
-    try {
-      const response = await fetch(`/api/reservations/${params.id}`)
-      if (!response.ok) {
-        if (response.status === 404) {
-          router.push('/')
-          return
-        }
-        throw new Error('Failed to fetch reservation')
-      }
-      const data = await response.json()
-      setReservation(data.reservation)
-      
-      if (data.reservation.status === 'PENDING') {
+    if (!id) return
+    fetch(`/api/reservations/${id}`)
+      .then(res => {
+        if (!res.ok) throw new Error('Not found')
+        return res.json()
+      })
+      .then(data => {
+        setRes(data.reservation)
         const expiry = new Date(data.reservation.expiresAt).getTime()
-        const remaining = Math.max(0, Math.floor((expiry - Date.now()) / 1000))
-        setTimeLeft(remaining)
-      }
-    } catch (error) {
-      console.error('Error fetching reservation:', error)
-      toast({
-        title: 'Error',
-        description: 'Failed to load reservation details',
-        variant: 'destructive',
+        setTimeLeft(Math.max(0, Math.floor((expiry - Date.now()) / 1000)))
       })
-    } finally {
-      setLoading(false)
-    }
-  }
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [id])
 
-  const handleConfirm = async () => {
-    setConfirming(true)
-    try {
-      const response = await fetch(`/api/reservations/${params.id}/confirm`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      })
+  useEffect(() => {
+    if (!res || timeLeft <= 0) return
+    const timer = setInterval(() => setTimeLeft(t => t - 1), 1000)
+    return () => clearInterval(timer)
+  }, [timeLeft, res])
 
-      const data = await response.json()
+  async function confirm() {
+  const res = await fetch(`/api/reservations/${id}/confirm`, { method: 'POST' })
+  if (res.status === 410) alert('Expired')
+  else if (res.ok) { alert('Confirmed!'); router.push('/') }
+  else alert('Error confirming')
+}
 
-      if (response.status === 410) {
-        toast({
-          title: 'Reservation Expired',
-          description: 'Your reservation has expired. Please create a new one.',
-          variant: 'destructive',
-        })
-        await fetchReservation()
-        return
-      }
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to confirm reservation')
-      }
-
-      toast({
-        title: 'Purchase Confirmed! 🎉',
-        description: `Your reservation for ${reservation?.units} unit(s) has been confirmed.`,
-      })
-      
-      // Refresh to show confirmed status
-      await fetchReservation()
-      
-      // Redirect after 3 seconds
-      setTimeout(() => {
-        router.push('/')
-      }, 3000)
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to confirm reservation',
-        variant: 'destructive',
-      })
-    } finally {
-      setConfirming(false)
-    }
-  }
-
-  const handleCancel = async () => {
-    setReleasing(true)
-    try {
-      const response = await fetch(`/api/reservations/${params.id}/release`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to release reservation')
-      }
-
-      toast({
-        title: 'Reservation Cancelled',
-        description: 'Your reservation has been cancelled. Inventory has been released.',
-      })
-      
-      await fetchReservation()
-      
-      setTimeout(() => {
-        router.push('/')
-      }, 2000)
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to cancel reservation',
-        variant: 'destructive',
-      })
-    } finally {
-      setReleasing(false)
-    }
-  }
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-  }
-
-  const getTimeColor = () => {
-    if (timeLeft <= 60) return 'text-red-600'
-    if (timeLeft <= 180) return 'text-orange-600'
-    return 'text-blue-600'
+  async function cancel() {
+    if (!id) return
+    await fetch(`/api/reservations/${id}/release`, { method: 'POST' })
+    alert('Cancelled'); router.push('/')
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="text-teal-400 font-mono animate-pulse">Loading reservation...</div>
       </div>
     )
   }
 
-  if (!reservation) {
-    return null
+  if (!res) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="text-red-400 font-mono">Reservation not found</div>
+      </div>
+    )
   }
 
-  const isExpired = reservation.status === 'EXPIRED' || (reservation.status === 'PENDING' && timeLeft <= 0)
-  const isConfirmed = reservation.status === 'CONFIRMED'
-  const isReleased = reservation.status === 'RELEASED'
-  const isPending = reservation.status === 'PENDING' && !isExpired
+  const mins = Math.floor(timeLeft / 60)
+  const secs = timeLeft % 60
+  const isPending = res.status === 'PENDING' && timeLeft > 0
+  const percentage = (timeLeft / (15 * 60)) * 100 // 15 min expiry
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-2xl">
-      <Card className="shadow-lg">
-        <CardHeader className={`
-          ${isConfirmed ? 'bg-green-50 border-b border-green-200' : ''}
-          ${isReleased ? 'bg-red-50 border-b border-red-200' : ''}
-          ${isExpired ? 'bg-gray-50 border-b border-gray-200' : ''}
-          ${isPending ? 'bg-blue-50 border-b border-blue-200' : ''}
-        `}>
-          <div className="flex items-center gap-3">
-            {isConfirmed && <CheckCircle className="h-8 w-8 text-green-600" />}
-            {isReleased && <XCircle className="h-8 w-8 text-red-600" />}
-            {isExpired && <AlertCircle className="h-8 w-8 text-gray-600" />}
-            {isPending && <Clock className="h-8 w-8 text-blue-600 animate-pulse" />}
-            <div>
-              <CardTitle className="text-2xl">
-                {isConfirmed && 'Purchase Confirmed! ✅'}
-                {isReleased && 'Reservation Cancelled'}
-                {isExpired && 'Reservation Expired'}
-                {isPending && 'Complete Your Purchase'}
-              </CardTitle>
-              <CardDescription className="mt-1">
-                {isConfirmed && 'Thank you for your purchase. Your items have been secured.'}
-                {isReleased && 'The inventory has been released back to stock.'}
-                {isExpired && 'The time window has passed. Please create a new reservation.'}
-                {isPending && `You have ${formatTime(timeLeft)} to complete your purchase`}
-              </CardDescription>
-            </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 to-slate-900 flex items-center justify-center p-4">
+      <div className="max-w-md w-full rounded-2xl border border-slate-800 bg-slate-900/80 backdrop-blur-sm shadow-2xl shadow-teal-900/20">
+        {/* Header gradient bar */}
+        <div className="h-1.5 w-full bg-gradient-to-r from-teal-400 to-blue-500 rounded-t-2xl" />
+
+        <div className="p-6 space-y-5">
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-teal-400 to-blue-400 bg-clip-text text-transparent">
+              Reservation
+            </h1>
+            <span className="px-3 py-1 text-xs font-mono bg-teal-950/60 border border-teal-800 rounded-full text-teal-300">
+              {res.status}
+            </span>
           </div>
-        </CardHeader>
-        
-        <CardContent className="space-y-6 pt-6">
-          {/* Order Summary */}
-          <div className="border rounded-lg p-4 space-y-3">
-            <h3 className="font-semibold text-lg mb-3">Order Summary</h3>
-            
-            <div className="flex justify-between items-start">
-              <div className="flex items-start gap-3">
-                <Package className="h-5 w-5 text-gray-500 mt-0.5" />
-                <div>
-                  <div className="font-medium">{reservation.product.name}</div>
-                  <div className="text-sm text-gray-500">SKU: {reservation.product.sku}</div>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="font-semibold">Quantity: {reservation.units}</div>
-              </div>
+
+          {/* Product & warehouse details */}
+          <div className="space-y-3 border-t border-slate-800 pt-4">
+            <div className="flex justify-between">
+              <span className="text-slate-400 font-mono text-sm">Product</span>
+              <span className="text-slate-200 font-medium">{res.product?.name}</span>
             </div>
-            
-            <div className="flex items-start gap-3">
-              <Warehouse className="h-5 w-5 text-gray-500 mt-0.5" />
-              <div>
-                <div className="font-medium">{reservation.warehouse.name}</div>
-                <div className="flex items-center gap-1 text-sm text-gray-500">
-                  <MapPin className="h-3 w-3" />
-                  {reservation.warehouse.location}
-                </div>
-              </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400 font-mono text-sm">Warehouse</span>
+              <span className="text-slate-200">{res.warehouse?.name}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400 font-mono text-sm">Quantity</span>
+              <span className="text-slate-200">{res.quantity}</span>
             </div>
           </div>
 
-          {/* Timer Display for Pending */}
+          {/* Timer card */}
           {isPending && (
-            <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg p-6 text-center">
-              <div className="text-sm text-blue-700 mb-2">Time remaining to confirm</div>
-              <div className={`text-5xl font-mono font-bold ${getTimeColor()}`}>
-                {formatTime(timeLeft)}
+            <div className="rounded-xl bg-slate-800/60 border border-slate-700 p-4 space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="font-mono text-xs text-teal-400 tracking-wider uppercase">Time remaining</span>
+                <span className="font-mono text-3xl font-bold text-white">
+                  {mins.toString().padStart(2, '0')}:{secs.toString().padStart(2, '0')}
+                </span>
               </div>
-              <div className="text-xs text-blue-600 mt-2">
-                Reservation expires at {new Date(reservation.expiresAt).toLocaleTimeString()}
+              <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-teal-400 to-blue-500 transition-all duration-1000 ease-linear"
+                  style={{ width: `${percentage}%` }}
+                />
               </div>
+              <p className="text-xs text-slate-500 text-center">Expires at {new Date(res.expiresAt).toLocaleTimeString()}</p>
             </div>
           )}
 
-          {/* Warning for expiring soon */}
-          {isPending && timeLeft <= 60 && timeLeft > 0 && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2 text-red-700">
-              <AlertCircle className="h-4 w-4" />
-              <span className="text-sm">Hurry up! Your reservation is expiring soon.</span>
+          {/* Action buttons */}
+          {isPending && (
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={confirm}
+                className="flex-1 py-3 rounded-xl font-semibold text-slate-900 bg-gradient-to-r from-teal-400 to-teal-500 hover:from-teal-500 hover:to-teal-600 transition-all transform hover:-translate-y-0.5 shadow-lg shadow-teal-900/30"
+              >
+                Confirm Purchase
+              </button>
+              <button
+                onClick={cancel}
+                className="flex-1 py-3 rounded-xl font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-all"
+              >
+                Cancel
+              </button>
             </div>
           )}
-        </CardContent>
-        
-        <CardFooter className="flex gap-4 pt-4">
-          {isPending && (
-            <>
-              <Button
-                onClick={handleConfirm}
-                disabled={confirming}
-                className="flex-1 bg-green-600 hover:bg-green-700 h-12 text-base"
-              >
-                {confirming ? (
-                  <>
-                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                    Processing...
-                  </>
-                ) : (
-                  'Confirm Purchase ✅'
-                )}
-              </Button>
-              <Button
-                onClick={handleCancel}
-                disabled={releasing}
-                variant="outline"
-                className="flex-1 h-12 text-base"
-              >
-                {releasing ? (
-                  <>
-                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                    Cancelling...
-                  </>
-                ) : (
-                  'Cancel ✕'
-                )}
-              </Button>
-            </>
+
+          {!isPending && (
+            <div className="rounded-xl bg-red-950/40 border border-red-800/50 p-4 text-center">
+              <p className="text-red-300 font-mono text-sm">
+                Reservation {res.status.toLowerCase()}
+              </p>
+            </div>
           )}
-          
-          {(isConfirmed || isReleased || isExpired) && (
-            <Button 
-              onClick={() => router.push('/')} 
-              className="w-full h-12 text-base"
-            >
-              Browse More Products →
-            </Button>
-          )}
-        </CardFooter>
-      </Card>
+        </div>
+      </div>
     </div>
   )
 }

@@ -1,133 +1,84 @@
-// app/api/reservations/[id]/confirm/route.ts (Complete version)
+// app/api/reservations/[id]/confirm/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { DistributedLock } from '@/lib/lock'
-import { IdempotencyService } from '@/lib/idempotency'
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const idempotencyKey = request.headers.get('Idempotency-Key')
-    
-    // Idempotency check
-    if (idempotencyKey) {
-      const existing = await IdempotencyService.get(idempotencyKey)
-      if (existing) {
-        return NextResponse.json(existing.response, { status: existing.statusCode })
-      }
+    const { id } = await params
+
+    const reservation = await prisma.reservation.findUnique({
+      where: { id },
+    })
+
+    if (!reservation) {
+      return NextResponse.json({ error: 'Reservation not found' }, { status: 404 })
+    }
+    if (reservation.status !== 'PENDING') {
+      return NextResponse.json({ error: `Already ${reservation.status}` }, { status: 400 })
+    }
+    if (reservation.expiresAt < new Date()) {
+      // release expired stock first
+      await prisma.$transaction(async (tx) => {
+        await tx.reservation.update({ where: { id }, data: { status: 'EXPIRED' } })
+        await tx.inventory.update({
+          where: {
+            productId_warehouseId: {
+              productId: reservation.productId,
+              warehouseId: reservation.warehouseId,
+            },
+          },
+          data: { reservedUnits: { decrement: reservation.quantity } },
+        })
+      })
+      return NextResponse.json({ error: 'Reservation expired' }, { status: 410 })
     }
 
-    const result = await DistributedLock.withLock(
-      `confirm:${params.id}`,
-      async () => {
-        // Get reservation with fresh data
-        const reservation = await prisma.reservation.findUnique({
-          where: { id: params.id },
-        })
+    // ✅ Stable confirm – all updates inside transaction
+    await prisma.$transaction(async (tx) => {
+      // 1. Refresh inventory with a pessimistic read (row lock)
+      const inventory = await tx.inventory.findUnique({
+        where: {
+          productId_warehouseId: {
+            productId: reservation.productId,
+            warehouseId: reservation.warehouseId,
+          },
+        },
+      })
+      if (!inventory) throw new Error('Inventory not found')
 
-        if (!reservation) {
-          throw new Error('Reservation not found')
-        }
-
-        // Check if already processed
-        if (reservation.status !== 'PENDING') {
-          throw new Error(`Reservation already ${reservation.status.toLowerCase()}`)
-        }
-
-        // Check if expired
-        if (reservation.expiresAt < new Date()) {
-          // Release the reserved stock first
-          await prisma.$transaction(async (tx) => {
-            await tx.reservation.update({
-              where: { id: params.id },
-              data: { status: 'EXPIRED' },
-            })
-            
-            await tx.stockLevel.update({
-              where: {
-                productId_warehouseId: {
-                  productId: reservation.productId,
-                  warehouseId: reservation.warehouseId,
-                },
-              },
-              data: {
-                reservedUnits: {
-                  decrement: reservation.units,
-                },
-              },
-            })
-          })
-          throw new Error('Reservation has expired')
-        }
-
-        // Confirm and permanently deduct stock
-        await prisma.$transaction(async (tx) => {
-          await tx.reservation.update({
-            where: { id: params.id },
-            data: { status: 'CONFIRMED' },
-          })
-
-          // Deduct from total units and remove from reserved
-          await tx.stockLevel.update({
-            where: {
-              productId_warehouseId: {
-                productId: reservation.productId,
-                warehouseId: reservation.warehouseId,
-              },
-            },
-            data: {
-              totalUnits: {
-                decrement: reservation.units,
-              },
-              reservedUnits: {
-                decrement: reservation.units,
-              },
-            },
-          })
-        })
-
-        return { 
-          success: true, 
-          message: 'Reservation confirmed successfully',
-          reservationId: params.id
-        }
+      // 2. Validate enough totalUnits and reservedUnits
+      if (inventory.totalUnits < reservation.quantity) {
+        throw new Error('Insufficient total stock')
       }
-    )
+      if (inventory.reservedUnits < reservation.quantity) {
+        throw new Error('Inconsistent reserved units')
+      }
 
-    // Store idempotency response
-    if (idempotencyKey) {
-      await IdempotencyService.set(idempotencyKey, result, 200)
-    }
+      // 3. Perform decrements
+      await tx.inventory.update({
+        where: { id: inventory.id },
+        data: {
+          totalUnits: { decrement: reservation.quantity },
+          reservedUnits: { decrement: reservation.quantity },
+        },
+      })
 
-    return NextResponse.json(result)
+      // 4. Mark reservation as confirmed
+      await tx.reservation.update({
+        where: { id },
+        data: { status: 'CONFIRMED' },
+      })
+    })
+
+    return NextResponse.json({ success: true, message: 'Confirmed' })
   } catch (error: any) {
-    if (error.message === 'Reservation not found') {
-      return NextResponse.json(
-        { error: 'Reservation not found' },
-        { status: 404 }
-      )
-    }
-    
-    if (error.message?.includes('already')) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 400 }
-      )
-    }
-    
-    if (error.message === 'Reservation has expired') {
-      return NextResponse.json(
-        { error: 'Reservation has expired' },
-        { status: 410 }
-      )
-    }
-    
-    console.error('Error confirming reservation:', error)
-    return NextResponse.json(
-      { error: 'Failed to confirm reservation' },
-      { status: 500 }
-    )
+    console.error(error)
+    const message = error.message === 'Insufficient total stock' || error.message === 'Inconsistent reserved units'
+      ? error.message
+      : 'Internal server error'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
