@@ -1,4 +1,5 @@
-# Allo Inventory – Multi‑Warehouse Reservation System
+# Allo Inventory
+### Multi-Warehouse Inventory Reservation System
 
 A production‑ready inventory reservation system that prevents overselling during checkout by temporarily holding stock for a short window (15 minutes). Built with Next.js 15, Prisma, PostgreSQL (Supabase), and optional Redis for distributed locking.
 
@@ -41,7 +42,9 @@ npm install
 ### 3. Set up environment variables
 Create a file named .env in the root directory with the following content:
 
-env
+```env
+DATABASE_URL="..."
+```
 # Required – your PostgreSQL connection string
 ```bash
 DATABASE_URL="postgresql://user:password@host:5432/db"
@@ -100,6 +103,16 @@ All stock updates are wrapped in Prisma transactions.
 The reserve endpoint uses $transaction with a findUnique followed by an update. PostgreSQL row‑level locks prevent double‑booking.
 
 For multi‑server deployments, a distributed lock via Redis (lib/lock.ts) provides an additional safety layer.
+
+## Reservation Flow
+
+1. User clicks Reserve
+2. Backend checks available stock
+3. Reservation is created inside a database transaction
+4. reservedUnits increases temporarily
+5. Reservation expires after 15 minutes if not confirmed
+6. Confirm permanently deducts stock
+7. Cancel/Expiry releases reserved stock
 
 
 ### License
