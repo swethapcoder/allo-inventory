@@ -75,7 +75,7 @@ Inventory records with totalUnits and reservedUnits (initial reserved = 0)
 npm run dev
 Open http://localhost:3000 in your browser.
 ```
- ###How to Test the Full Flow
+ ### How to Test the Full Flow
 On the product listing page, click Reserve for any warehouse with available stock.
 
 You will be redirected to /reservation/{id}.
@@ -87,14 +87,14 @@ Click Cancel – only the temporary hold is removed (reservedUnits decreases, to
 
 Wait 15 minutes and try to confirm – you will see a 410 Reservation expired error (the stock is released automatically).
 
- ###Expiry Mechanism
+ ### Expiry Mechanism
 Two complementary strategies:
 
 Lazy cleanup – When fetching a reservation, if it is pending and expiresAt is in the past, the API releases the stock and marks it as EXPIRED.
 
 Background cron – An endpoint /api/cron/release-expired can be called every minute (e.g., via Vercel Cron Jobs) to bulk‑release expired reservations. This is not required for local testing.
 
-###Concurrency & Race Conditions
+### Concurrency & Race Conditions
 All stock updates are wrapped in Prisma transactions.
 
 The reserve endpoint uses $transaction with a findUnique followed by an update. PostgreSQL row‑level locks prevent double‑booking.
@@ -102,7 +102,7 @@ The reserve endpoint uses $transaction with a findUnique followed by an update. 
 For multi‑server deployments, a distributed lock via Redis (lib/lock.ts) provides an additional safety layer.
 
 
-###License
+### License
 This project is built for the Allo Engineering take‑home exercise.
 
 text
