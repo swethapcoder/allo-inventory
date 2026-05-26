@@ -4,7 +4,7 @@ A production‑ready inventory reservation system that prevents overselling duri
 
 ## Live Demo
 
-Deployed on Vercel – [link will be added after deployment](https://allo-inventory-l4m5-p1s1auzpb-swethapcoders-projects.vercel.app/)
+Deployed on Vercel – (https://allo-inventory-l4m5-p1s1auzpb-swethapcoders-projects.vercel.app/)
 
 ## Features
 
