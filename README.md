@@ -5,7 +5,7 @@ A production‑ready inventory reservation system that prevents overselling duri
 
 ## Live Demo
 
-Deployed on Vercel – (https://allo-inventory-l4m5-p1s1auzpb-swethapcoders-projects.vercel.app/)
+Deployed on Vercel – [Live Demo](https://allo-inventory-l4m5-p1s1auzpb-swethapcoders-projects.vercel.app/)
 
 ## Features
 
@@ -40,19 +40,16 @@ cd allo-inventory
 npm install
 ```
 ### 3. Set up environment variables
-Create a file named .env in the root directory with the following content:
+Create a file named `.env` in the root directory with the following content:
 
 ```env
-DATABASE_URL="..."
-```
 # Required – your PostgreSQL connection string
-```bash
 DATABASE_URL="postgresql://user:password@host:5432/db"
-```
+
 # Optional – only needed for distributed locking / idempotency
-```bash
 UPSTASH_REDIS_REST_URL="https://your-redis-url.upstash.io"
 UPSTASH_REDIS_REST_TOKEN="your-token"
+
 ```
 Note: Redis is optional. If you don’t provide the Redis variables, the app will still work using database transactions alone (still race‑condition‑free for single‑instance deployments).
 
@@ -76,8 +73,9 @@ Inventory records with totalUnits and reservedUnits (initial reserved = 0)
 ### 6. Start the development server
 ```bash
 npm run dev
-Open http://localhost:3000 in your browser.
 ```
+Open http://localhost:3000 in your browser.
+
  ### How to Test the Full Flow
 On the product listing page, click Reserve for any warehouse with available stock.
 
@@ -116,9 +114,7 @@ For multi‑server deployments, a distributed lock via Redis (lib/lock.ts) provi
 
 
 ### License
-This project is built for the Allo Engineering take‑home exercise.
-
-text
+This project was built as part of the Allo Engineering take-home assignment.
 
 ### Now commit and push the README
 
