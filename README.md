@@ -33,23 +33,32 @@ Follow these steps exactly to get the project running on your machine.
 ```bash
 git clone https://github.com/swethapcoder/allo-inventory.git
 cd allo-inventory
+```
 ### 2. Install dependencies
+```bash
 npm install
+```
 ### 3. Set up environment variables
 Create a file named .env in the root directory with the following content:
 
 env
 # Required – your PostgreSQL connection string
+```bash
 DATABASE_URL="postgresql://user:password@host:5432/db"
-
+```
 # Optional – only needed for distributed locking / idempotency
+```bash
 UPSTASH_REDIS_REST_URL="https://your-redis-url.upstash.io"
 UPSTASH_REDIS_REST_TOKEN="your-token"
 Note: Redis is optional. If you don’t provide the Redis variables, the app will still work using database transactions alone (still race‑condition‑free for single‑instance deployments).
+```
 ### 4. Run database migrations and generate Prisma client
+```bash
 npx prisma migrate dev --name init
 npx prisma generate
+```
 ### 5. Seed the database with sample data
+```bash
 npm run seed
 This creates:
 
@@ -58,6 +67,7 @@ Two warehouses (Hyderabad, Bangalore)
 Four products (iPhone 15, Samsung S24, Google Pixel 8, OnePlus 12)
 
 Inventory records with totalUnits and reservedUnits (initial reserved = 0)
+```
 ### 6. Start the development server
 npm run dev
 Open http://localhost:3000 in your browser.
